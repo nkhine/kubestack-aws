@@ -1,7 +1,7 @@
 variable "discovery_url" {}
 
 variable "kube_version" {
-  default = "v1.1.7"
+  default = "v1.1.8"
 }
 
 variable "master_count" {
