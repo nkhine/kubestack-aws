@@ -28,7 +28,7 @@ variable "master_instance_type" {
 }
 
 variable "worker_instance_type" {
-  default = "m3.xlarge"
+  default = "m3.medium"
 }
 
 variable "master_volume_size" {
