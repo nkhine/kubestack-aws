@@ -40,6 +40,13 @@ resource "aws_security_group" "kube_cluster" {
   name = "kube-cluster"
   description = "Kubernetes cluster"
 
+  tags =
+  {
+    Name = "Kubernetes securtiy group"
+    system = "test"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
+
   ingress {
     from_port = 22
     to_port = 22
@@ -112,7 +119,7 @@ resource "aws_security_group" "kube_cluster" {
 }
 
 resource "aws_key_pair" "ssh_key" {
-  key_name = "ssh_key"
+  key_name = "${var.ssh_key_name}"
   public_key = "${var.ssh_public_key}"
 }
 
@@ -123,12 +130,21 @@ resource "template_file" "cloud_init" {
   }
 }
 
+
+# removed from ELB: subnets = ["${aws_instance.master.*.subnet_id}"]
 resource "aws_elb" "kube_master" {
   name = "kube-master"
 
-  subnets = ["${aws_instance.master.*.subnet_id}"]
   security_groups = ["${aws_security_group.kube_cluster.id}"]
   instances = ["${aws_instance.master.*.id}"]
+  availability_zones = ["${split(",", var.availability_zones)}"]
+  tags =
+  {
+    Name = "kubestack-elb"
+    system = "test"
+    role = "elb"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
 
   listener {
     instance_port = 443
@@ -161,7 +177,7 @@ resource "aws_elb" "kube_master" {
 
   # openssl
   provisioner "local-exec" {
-    command = "sed 's|<MASTER_HOST>|${self.dns_name}|g' openssl/openssl.cnf.tpl > openssl/certs/openssl.cnf && cd openssl && source generate_certs.sh"
+    command = "mkdir -p openssl/certs && sed 's|<MASTER_HOST>|${self.dns_name}|g' openssl/openssl.cnf.tpl > openssl/certs/openssl.cnf && cd openssl && source generate_certs.sh"
   }
 
   provisioner "local-exec" {
@@ -172,17 +188,27 @@ resource "aws_elb" "kube_master" {
 # master nodes
 resource "aws_instance" "master" {
   count = "${var.master_count}"
-
   ami = "${lookup(var.amis, var.region)}"
+  availability_zone = "${element(split(",", var.availability_zones), count.index)}"
   instance_type = "${var.master_instance_type}"
   root_block_device = {
     volume_type = "gp2"
     volume_size = "${var.master_volume_size}"
   }
   security_groups = ["${aws_security_group.kube_cluster.name}"]
+
   iam_instance_profile = "${aws_iam_instance_profile.master_profile.name}"
+  depends_on = ["aws_iam_role_policy.master_policy"]
+
   user_data = "${template_file.cloud_init.rendered}"
   key_name = "${aws_key_pair.ssh_key.key_name}"
+  tags =
+  {
+    Name = "${format("kubestack-master-%03d", count.index + 1)}"
+    system = "test"
+    role = "master"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
 }
 
 resource "null_resource" "master" {
@@ -231,6 +257,7 @@ resource "null_resource" "master" {
       "sudo chmod +x /opt/bin/kubelet",
       "ETCD_ENDPOINTS=${self.triggers.etcd_endpoints}",
       "ETCD_SERVER=${self.triggers.etcd_server}",
+      "echo > ETCD_SERVER is set to: $ETCD_SERVER",
       "ADVERTISE_IP=${element(aws_instance.master.*.private_ip, count.index)}",
       "ADVERTISE_DNS=${element(aws_instance.master.*.private_dns, count.index)}",
       "sed -i \"s|<ADVERTISE_IP>|$ADVERTISE_IP|g\" /tmp/options.env",
@@ -259,11 +286,15 @@ resource "null_resource" "master" {
       "sed -i 's|<KUBE_VERSION>|${var.kube_version}|g' /tmp/kube-scheduler.yaml",
       "sudo mv /tmp/kube-scheduler.yaml /srv/kubernetes/manifests/kube-scheduler.yaml",
       "sudo systemctl daemon-reload",
-      "curl -X PUT -d 'value={\"Network\":\"10.2.0.0/16\",\"Backend\":{\"Type\":\"vxlan\"}}' \"$ETCD_SERVER/v2/keys/coreos.com/network/config\"",
+      "echo \"> storing network config in $ETCD_SERVER\" && etcdctl set /coreos.com/network/config '{\"Network\":\"10.2.0.0/16\",\"Backend\":{\"Type\":\"vxlan\"}}'",
       "sudo systemctl start kubelet",
+      "echo > starting kubelet",
       "sudo systemctl enable kubelet",
-      "until $(curl -o /dev/null -sf http://127.0.0.1:8080/version); do printf '.'; sleep 5; done",
-      "curl -X POST -d '{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"name\":\"kube-system\"}}' \"http://127.0.0.1:8080/api/v1/namespaces\""
+      "echo > enabling kubelet",
+      "until $(curl -o /dev/null -sf http://127.0.0.1:8080/version); do printf '> waiting for kubelet service to start'; sleep 5; done",
+      "echo > kubelet service started",
+      "echo > creating namespace: kube-system",
+      "curl -H 'Content-Type: application/json' -X POST -d '{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"name\":\"kube-system\"}}' \"http://127.0.0.1:8080/api/v1/namespaces\""
     ]
   }
 }
@@ -274,13 +305,24 @@ resource "aws_instance" "worker" {
 
   ami = "${lookup(var.amis, var.region)}"
   instance_type = "${var.worker_instance_type}"
+  availability_zone = "${element(split(",", var.availability_zones), count.index)}"
   root_block_device = {
     volume_type = "gp2"
     volume_size = "${var.worker_volume_size}"
   }
   security_groups = ["${aws_security_group.kube_cluster.name}"]
+
   iam_instance_profile = "${aws_iam_instance_profile.worker_profile.name}"
+  depends_on = ["aws_iam_role_policy.worker_policy"]
+
   key_name = "${aws_key_pair.ssh_key.key_name}"
+  tags =
+  {
+    Name = "${format("kubestack-worker-%03d", count.index + 1)}"
+    system = "test"
+    role = "worker"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
 }
 
 resource "null_resource" "worker" {
