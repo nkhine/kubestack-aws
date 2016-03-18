@@ -33,18 +33,14 @@ Provision a Kubernetes cluster with [Terraform](https://www.terraform.io) and [C
 
 ```
 # aws
-access_key = "<access key>"
-secret_key = "<secret key>"
-
-ssh_public_key = "<ssh public key>"
+ssh_key_name = "<key name in AWS to be used for instance mgmt>" 
 ssh_private_key_path = "<path to private key file>"
+ssh_public_key = "public SSH key content"
 
-# generate new discovery url: https://discovery.etcd.io/new?size=<master_count>
-discovery_url = "<discovery url>"
 
 # cluster
-master_count = 1
-worker_count = 1
+master_count = 5
+worker_count = 6
 ```
 
 * create cluster
