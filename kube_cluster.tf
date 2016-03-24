@@ -36,6 +36,36 @@ resource "aws_iam_instance_profile" "worker_profile" {
   roles = ["${aws_iam_role.worker_role.name}"]
 }
 
+resource "aws_vpc" "kubernetes_vpc" {
+  cidr_block = "${var.vpc_properties.cidr}"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+  instance_tenancy     = "default"
+
+  tags {
+    Name = "${var.vpc_properties.name}"
+    system = "${var.system}"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
+}
+
+resource "aws_subnet" "availability_zone_subnet" {
+
+  vpc_id = "${aws_vpc.kubernetes_vpc.id}"
+  count = "${length(split(",", var.availability_zones))}"
+  cidr_block = "${cidrsubnet(var.vpc_properties.cidr, 4, count.index)}"
+  availability_zone = "${element(split(",", var.availability_zones), count.index)}"
+  map_public_ip_on_launch = false
+
+  tags {
+    "AZ-Network" = "${cidrsubnet(var.vpc_properties.cidr, 4, count.index)}" 
+    Name = "AZ: ${element(split(",", var.availability_zones), count.index)}"
+    system = "${var.system}"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
+}
+
+
 resource "aws_security_group" "kube_cluster" {
   name = "kube-cluster"
   description = "Kubernetes cluster"
@@ -43,7 +73,7 @@ resource "aws_security_group" "kube_cluster" {
   tags =
   {
     Name = "Kubernetes securtiy group"
-    system = "test"
+    system = "${var.system}"
     KubernetesCluster = "${var.kubernetes_cluster_id}"
   }
 
@@ -130,6 +160,31 @@ resource "template_file" "cloud_init" {
   }
 }
 
+# master nodes
+resource "aws_instance" "master" {
+  count = "${var.master_count}"
+  ami = "${lookup(var.amis, var.region)}"
+  availability_zone = "${element(split(",", var.availability_zones), count.index)}"
+  instance_type = "${var.master_instance_type}"
+  root_block_device = {
+    volume_type = "gp2"
+    volume_size = "${var.master_volume_size}"
+  }
+  security_groups = ["${aws_security_group.kube_cluster.name}"]
+
+  iam_instance_profile = "${aws_iam_instance_profile.master_profile.name}"
+  depends_on = ["aws_iam_role_policy.master_policy", "aws_iam_instance_profile.master_profile"]
+
+  user_data = "${template_file.cloud_init.rendered}"
+  key_name = "${aws_key_pair.ssh_key.key_name}"
+  tags =
+  {
+    Name = "${format("kubestack-master-%03d", count.index + 1)}"
+    system = "${var.system}"
+    role = "master"
+    KubernetesCluster = "${var.kubernetes_cluster_id}"
+  }
+}
 
 # removed from ELB: subnets = ["${aws_instance.master.*.subnet_id}"]
 resource "aws_elb" "kube_master" {
@@ -138,10 +193,11 @@ resource "aws_elb" "kube_master" {
   security_groups = ["${aws_security_group.kube_cluster.id}"]
   instances = ["${aws_instance.master.*.id}"]
   availability_zones = ["${split(",", var.availability_zones)}"]
+
   tags =
   {
     Name = "kubestack-elb"
-    system = "test"
+    system = "${var.system}"
     role = "elb"
     KubernetesCluster = "${var.kubernetes_cluster_id}"
   }
@@ -182,32 +238,6 @@ resource "aws_elb" "kube_master" {
 
   provisioner "local-exec" {
     command = "sed 's|<MASTER_HOST>|${self.dns_name}|g' local/setup_kubectl.sh.tpl > local/setup_kubectl.sh && cd local && source setup_kubectl.sh"
-  }
-}
-
-# master nodes
-resource "aws_instance" "master" {
-  count = "${var.master_count}"
-  ami = "${lookup(var.amis, var.region)}"
-  availability_zone = "${element(split(",", var.availability_zones), count.index)}"
-  instance_type = "${var.master_instance_type}"
-  root_block_device = {
-    volume_type = "gp2"
-    volume_size = "${var.master_volume_size}"
-  }
-  security_groups = ["${aws_security_group.kube_cluster.name}"]
-
-  iam_instance_profile = "${aws_iam_instance_profile.master_profile.name}"
-  depends_on = ["aws_iam_role_policy.master_policy"]
-
-  user_data = "${template_file.cloud_init.rendered}"
-  key_name = "${aws_key_pair.ssh_key.key_name}"
-  tags =
-  {
-    Name = "${format("kubestack-master-%03d", count.index + 1)}"
-    system = "test"
-    role = "master"
-    KubernetesCluster = "${var.kubernetes_cluster_id}"
   }
 }
 
@@ -313,13 +343,13 @@ resource "aws_instance" "worker" {
   security_groups = ["${aws_security_group.kube_cluster.name}"]
 
   iam_instance_profile = "${aws_iam_instance_profile.worker_profile.name}"
-  depends_on = ["aws_iam_role_policy.worker_policy"]
+  depends_on = ["aws_iam_role_policy.worker_policy", "aws_iam_instance_profile.worker_profile"]
 
   key_name = "${aws_key_pair.ssh_key.key_name}"
   tags =
   {
     Name = "${format("kubestack-worker-%03d", count.index + 1)}"
-    system = "test"
+    system = "${var.system}"
     role = "worker"
     KubernetesCluster = "${var.kubernetes_cluster_id}"
   }

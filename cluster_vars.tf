@@ -20,5 +20,10 @@ variable "worker_count" {
   default = 3
 }
 
+################
+# Tags which need to specified
 # kubernetes cluster ID, it must be unique for every new cluster
 variable "kubernetes_cluster_id" {}
+variable "system" {}
+
+
