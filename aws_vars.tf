@@ -32,25 +32,6 @@ variable "vpc_properties" {
   }
 }
 
-# not used right now
-#variable "subnet_cidr" {
-#  default = {
-#    # minor note: we deal here with 20bit network mask segments offering us:
-#    #  16 network segments 
-#    #  2^(32-20) = 4096 addresses, where 2 addresses are reserved for:
-#    #   in the first segment
-#    #     * Network ID: 172.19.0.0
-#    #     * Broadcast Address: 172.19.15.255
-#    "1a_cidr" = "172.19.0.0/20"
-#    #   in the second segment
-#    #     * Network ID: 172.19.16.0
-#    #     * Broadcast Address: 172.19.31.255
-#    "1b_cidr" = "172.19.16.0/20"
-#    # each network segment is intended to be a new availability zone
-#    # don't use inter-region clusters (unless you really know what you do),
-#    # as they can involve major network performance drawbacks!
-#  }
-#}
 
 # available CoreOS AMI images to be used
 # HVM based^
