@@ -56,7 +56,7 @@ variable "vpc_properties" {
 # HVM based^
 variable "amis" {
   default = {
-    eu-central-1 = "ami-ab39dec4"  # beta based CoreOS 899.11.0: https://coreos.com/releases/#899.11.0
+    eu-central-1 = "ami-8bed0be4"  # beta based CoreOS 991.1.0: https://coreos.com/releases/#991.1.0
     eu-west-1 = "ami-2a1fad59"
     ap-northeast-1 = "ami-02c9c86c"
     ap-southeast-1 = "ami-00a06963"
