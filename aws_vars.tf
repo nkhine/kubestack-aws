@@ -34,7 +34,7 @@ variable "vpc_properties" {
 
 
 # available CoreOS AMI images to be used
-# HVM based^
+# HVM based
 variable "amis" {
   default = {
     eu-central-1 = "ami-8bed0be4"  # beta based CoreOS 991.1.0: https://coreos.com/releases/#991.1.0
